@@ -245,6 +245,42 @@ preprocess :: proc() {
     }
 }
 
+help := `Cli calculator
+
+-h (--help)      see help
+-s (--separate)  take each argument as separate problems
+`
+
+separate := false;
+
+checkFlag :: proc(arg: string) -> (isFlag: bool) {
+    if (arg[0] != '-') do return false;
+
+    switch (arg) {
+    case "-h", "--help":
+        fmt.print(help, "\n");
+        return true;
+    case "-s", "--separate":
+        separate = true;
+        return true;
+    }
+    return false;
+}
+
+run :: proc(buf: []u8, size: int) {
+    buf[size] = '\n';
+    size := size+1;
+
+    tokenize(buf, size);
+    if (len(tokens) > 0) {
+        preprocess();
+        tree := parseExpr(parsePrimary(), 0);
+        if (tree == nil) do return;
+        fmt.print(solve(tree), "\n");
+    }
+
+}
+
 main :: proc() {
     buf := make([]u8, 4096);
     defer delete(buf);
@@ -253,17 +289,17 @@ main :: proc() {
     if len(os.args) > 1 {
         offset: int = 0;
         for arg in os.args[1:] {
+            if (checkFlag(arg)) do continue;
+
             copy(buf[offset:], arg);
             offset += len(arg);
+            if (separate) {
+                run(buf, offset);
+                offset = 0;
+            }
         }
-        buf[offset] = '\n';
-        offset += 1;
 
-        tokenize(buf, offset);
-        preprocess();
-        tree := parseExpr(parsePrimary(), 0);
-        if (tree == nil) do return;
-        fmt.print(solve(tree), "\n", sep="");
+        if (!separate) do run(buf, offset);
 
         when ODIN_DEBUG {
             drawGraph(tree);
@@ -276,13 +312,7 @@ main :: proc() {
         bytesRead, err := os.read(os.stdin, buf);
         if (bytesRead == 1 && buf[0] == '\n') do break;
 
-        tokenize(buf, bytesRead);
-
-        if (len(tokens) == 0) do return;
-
-        tree := parseExpr(parsePrimary(), 0);
-        if (tree == nil) do continue;
-        fmt.printf("%f\n", solve(tree));
+        run(buf, bytesRead-1);
 
         when ODIN_DEBUG {
             drawGraph(tree);
