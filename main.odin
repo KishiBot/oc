@@ -4,6 +4,29 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:math"
+import c "core:c/libc"
+import "core:sys/unix"
+
+term :: struct {
+    c_iflag: c.int,
+    c_oflag: c.int,
+    c_cflag: c.int,
+    c_lflag: c.int,
+    c_line: c.uint8_t,
+    c_cc: [32]u8,
+    c_ispeed: c.int,
+    c_ospeed: c.int,
+}
+
+foreign import termios "system:libc.so"
+foreign termios {
+    tcgetattr :: proc "c" (fd: c.int, t: ^term) -> c.int ---
+    tcsetattr :: proc "c" (fd: c.int, optional_actions: c.int, t: ^term) -> c.int ---
+}
+
+ICANON :c.int : 0x0002
+ECHO   :c.int : 0x0008
+TCSANOW :c.int : 0
 
 token_e :: enum {
     NUM,
@@ -180,7 +203,8 @@ drawGraph :: proc(node: ^node_s) {
         fmt.fprintf(f, "}");
     }
 
-    os.execvp("dot", {"-Tpng", "graph.dot", "-o", "graph.png"});
+    c.system("dot -Tpng graph.dot -o graph.png");
+    os.remove("graph.dot");
 }
 
 addNum :: proc(num: ^f64, buildingNum: ^bool) {
@@ -192,10 +216,10 @@ addNum :: proc(num: ^f64, buildingNum: ^bool) {
     }
 }
 
-tokenize :: proc(buf: []u8, size: int) {
+tokenize :: proc(buf: [dynamic]u8) {
     num: f64 = 0;
     buildingNum := false;
-    for ch, index in buf[:size] {
+    for ch, index in buf[:len(buf)] {
         if ch == ' ' || ch == '\n' {
             addNum(&num, &buildingNum);
         } else if ch == '+' {
@@ -267,22 +291,38 @@ checkFlag :: proc(arg: string) -> (isFlag: bool) {
     return false;
 }
 
-run :: proc(buf: []u8, size: int) {
-    buf[size] = '\n';
-    size := size+1;
+run :: proc(buf: [dynamic]u8) {
+    buf := buf;
+    append(&buf, '\n');
 
-    tokenize(buf, size);
+    tokenize(buf);
     if (len(tokens) > 0) {
         preprocess();
         tree := parseExpr(parsePrimary(), 0);
         if (tree == nil) do return;
         fmt.print(solve(tree), "\n");
-    }
 
+        when ODIN_DEBUG {
+            drawGraph(tree);
+        }
+    }
+}
+
+stdin: c.int = 0;
+old := term{};
+setupTermios :: proc() {
+    tcgetattr(stdin, &old);
+
+    raw := old;
+    raw.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(stdin, TCSANOW, &raw);
 }
 
 main :: proc() {
-    buf := make([]u8, 4096);
+    setupTermios();
+    defer tcsetattr(stdin, TCSANOW, &old);
+
+    buf := make([dynamic]u8, 0, 4096);
     defer delete(buf);
     defer delete(tokens);
 
@@ -291,31 +331,32 @@ main :: proc() {
         for arg in os.args[1:] {
             if (checkFlag(arg)) do continue;
 
-            copy(buf[offset:], arg);
-            offset += len(arg);
+            append(&buf, arg);
             if (separate) {
-                run(buf, offset);
-                offset = 0;
+                run(buf);
+                clear(&buf);
             }
         }
 
-        if (!separate) do run(buf, offset);
-
-        when ODIN_DEBUG {
-            drawGraph(tree);
-        }
+        if (!separate) do run(buf);
 
         return;
     }
 
-    for {
-        bytesRead, err := os.read(os.stdin, buf);
-        if (bytesRead == 1 && buf[0] == '\n') do break;
-
-        run(buf, bytesRead-1);
-
-        when ODIN_DEBUG {
-            drawGraph(tree);
+    key: [1]u8;
+    for unix.sys_read(int(stdin), &key[0], 1) > 0 {
+        // fmt.print(key[0], "\n");
+        if (key[0] == 10) {
+            if len(buf) == 0 do break;
+            fmt.printf("%c", key[0]);
+            run(buf);
+            clear(&buf);
+        } else if (key[0] == 127) {
+            fmt.print("\b \b");
+            pop(&buf);
+        } else if ((key[0] >= 48 && key[0] <= 57) || (key[0] >= 40 && key[0] <= 43) || key[0] == 45 || key[0] == 47 || key[0] == 123 || key[0] == 125 || key[0] == 91 || key[0] == 93 || key[0] == 94) {
+            append(&buf, key[0]);
+            fmt.printf("%c", key[0]);
         }
     }
 }
