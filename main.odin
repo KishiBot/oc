@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:strconv"
 import "core:math"
 import c "core:c/libc"
 import "core:sys/unix"
@@ -30,6 +31,7 @@ TCSANOW :c.int : 0
 
 token_e :: enum {
     NUM,
+    VAR,
     OP,
     LOGIC,
 };
@@ -58,6 +60,7 @@ token_s :: struct {
     type: token_e,
     op: op_e,
     val: f64,
+    var: string,
 };
 
 node_s :: struct {
@@ -145,6 +148,16 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
 
 solve :: proc(cur: ^node_s) -> f64 {
     if (cur.token.type == token_e.NUM) do return cur.token.val;
+    if (cur.token.type == token_e.VAR) {
+        switch (cur.token.var) {
+        case "ans", "ANS":
+            return ans;
+        case "pi", "PI":
+            return math.PI;
+        case "e", "E":
+            return math.e;
+        }
+    }
 
     if (cur.token.op == op_e.ADD) {
         return solve(cur.left) + solve(cur.right);
@@ -207,49 +220,73 @@ drawGraph :: proc(node: ^node_s) {
     os.remove("graph.dot");
 }
 
-addNum :: proc(num: ^f64, buildingNum: ^bool) {
-    buildingNum := buildingNum;
-    if (buildingNum^) {
-        append(&tokens, token_s({type=token_e.NUM, val=num^}));
-        buildingNum^ = false;
-        num^ = 0;
+addNum :: proc(num: ^f64, buildingNum: ^bool, decimal: ^u64, var: ^[dynamic]u8) {
+    if (len(var) != 0) {
+        token: token_s = {type=token_e.VAR};
+        token.var = strings.clone(string(var^[:]));
+        append(&tokens, token);
+        clear(var);
+    } else {
+        buildingNum := buildingNum;
+        if (buildingNum^) {
+            append(&tokens, token_s({type=token_e.NUM, val=num^}));
+            buildingNum^ = false;
+            decimal^ = 0;
+            num^ = 0;
+        }
     }
 }
 
-tokenize :: proc(buf: [dynamic]u8) {
+tokenize :: proc(buf: ^[dynamic]u8) {
     num: f64 = 0;
     buildingNum := false;
-    for ch, index in buf[:len(buf)] {
+    decimal: u64 = 0;
+    var := make([dynamic]u8, 0, 64);
+
+    for ch, index in buf^[:len(buf)] {
         if ch == ' ' || ch == '\n' {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
         } else if ch == '+' {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.ADD}));
         } else if (ch == '-') {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.SUB}));
         } else if (ch == '*') {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             if (len(tokens) > 0 && tokens[len(tokens)-1].type == token_e.OP && tokens[len(tokens)-1].op == op_e.MUL) {
                 tokens[len(tokens)-1].op = op_e.POW;
             } else {
                 append(&tokens, token_s({type=token_e.OP, op=op_e.MUL}));
             }
         } else if (ch == '^') {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.POW}));
         } else if (ch == '/') {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.DIV}));
         } else if (ch == '(' || ch == '[' || ch == '{') {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PAROP}));
         } else if (ch == ')' || ch == ']' || ch == '}') {
-            addNum(&num, &buildingNum);
+            addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PARCL}));
-        } else {
-            buildingNum = true;
-            num = num*10 + f64(ch)-48;
+        } else if ch == '.' {
+            if decimal > 0 {
+                fmt.eprint("Two instances of '.' in one token..\n");
+                resize(buf, 0);
+            }
+            decimal = 10;
+        } else if ch >= '0' && ch <= '9' {
+            if decimal > 0 {
+                num += (f64(ch)-48) / f64(decimal);
+                decimal *= 10;
+            } else {
+                buildingNum = true;
+                num = num*10 + f64(ch)-48;
+            }
+        } else if (ch >= 'a' && ch <= 'z') || (ch >= 'A' || ch <= 'Z') {
+            append(&var, ch);
         }
     }
 }
@@ -271,17 +308,31 @@ preprocess :: proc() {
 
 help := `Cli calculator
 
--h (--help)      see help
+--help           see help
 -s (--separate)  take each argument as separate problems
+--history=n      set number of remembered problems (default 256)
 `
 
+historyCount: int = 256;
 separate := false;
+
+cursor := 1;
+buf := make([dynamic]u8, 0, 4096);
+
+history := make([dynamic]string, 0, historyCount);
+historyCursor := 0;
+ans: f64 = 0;
 
 checkFlag :: proc(arg: string) -> (isFlag: bool) {
     if (arg[0] != '-') do return false;
 
+    if (arg[:10] == "--history=") {
+        historyCount = strconv.atoi(arg[10:]);
+        return true;
+    }
+
     switch (arg) {
-    case "-h", "--help":
+    case "--help":
         fmt.print(help, "\n");
         return true;
     case "-s", "--separate":
@@ -295,12 +346,25 @@ run :: proc(buf: [dynamic]u8) {
     buf := buf;
     append(&buf, '\n');
 
-    tokenize(buf);
+    if (len(history) == historyCount) {
+        pop_front(&history);
+    }
+
+    str, err := strings.clone(string(buf[:]));
+    if (err != nil) {
+        fmt.eprint("Could not copy problem into history:", err, "\n");
+    } else {
+        append(&history, str);
+        historyCursor = len(history);
+    }
+
+    tokenize(&buf);
     if (len(tokens) > 0) {
         preprocess();
         tree := parseExpr(parsePrimary(), 0);
         if (tree == nil) do return;
-        fmt.print(solve(tree), "\n");
+        ans = solve(tree);
+        fmt.print(ans, "\n");
 
         when ODIN_DEBUG {
             drawGraph(tree);
@@ -318,36 +382,51 @@ setupTermios :: proc() {
     tcsetattr(stdin, TCSANOW, &raw);
 }
 
-cursor := 0;
-buf := make([dynamic]u8, 0, 4096);
-
-handleInput :: proc(key: [4]u8) {
-    if (key[0] == 27 && key[1] == 91) {
+handleInput :: proc(key: [4]u8) -> (exit: bool) {
+    if (key[0] == '\x1b' && key[1] == '[') {
         switch key[2] {
         case 65: // up
+            historyCursor = max(historyCursor-1, 0);
+            resize(&buf, len(history[historyCursor])-1);
+            for i in 0..<len(buf) {
+                buf[i] = history[historyCursor][i];
+            }
+            cursor = len(buf)+1;
             break;
         case 66: // down
-            break;
+            historyCursor = min(historyCursor+1, len(history)-1);
+            resize(&buf, len(history[historyCursor])-1);
+            for i in 0..<len(buf) {
+                buf[i] = history[historyCursor][i];
+            }
+            cursor = len(buf)+1;
         case 67: // right
-            if (cursor < len(buf)) {
+            if (cursor <= len(buf)) {
                 cursor += 1;
             }
             break;
         case 68: // left
-            if (cursor > 0) {
+            if (cursor > 1) {
                 cursor -= 1;
             }
             break;
         }
     } else {
         switch key[2] {
-        case '0'..='9','*', '+', '-', '/', '^':
-            fmt.printf("%c", key[2]);
-            append(&buf, key[2]);
+        case '0'..='9','*', '+', '-', '/', '^', 'a'..='z', 'A'..='Z', ' ', '.':
+            resize(&buf, len(buf)+1);
+            for i := len(buf)-1; i >= cursor; i-=1 {
+                buf[i] = buf[i-1];
+            }
+            buf[cursor-1] = key[2];
             cursor += 1;
-            break;
         case 10: // enter
-            break;
+            if (len(buf) == 0) do return true;
+            fmt.printf("\r\x1b[K%s\x1b[%dG\n", string(buf[:len(buf)]),  cursor);
+            run(buf);
+            cursor = 1;
+            clear(&buf);
+            return;
         case 127: // backspace
             if (cursor > 0) {
                 for i in cursor-1..<len(buf)-1 {
@@ -356,14 +435,12 @@ handleInput :: proc(key: [4]u8) {
                 resize(&buf, len(buf)-1);
                 cursor -= 1;
             }
-            break;
         }
     }
 
-    // fmt.printf("%s %d\n", string(buf[:len(buf)]), cursor);
-    fmt.printf("\r\x1b[K");
-    fmt.print(string(buf[:len(buf)]));
+    fmt.printf("\r\x1b[K%s\x1b[%dG", string(buf[:len(buf)]),  cursor);
 
+    return false;
 }
 
 main :: proc() {
@@ -391,24 +468,11 @@ main :: proc() {
     }
 
     key: [4]u8;
-    for unix.sys_read(int(stdin), &key[0], 1) > 0 {
+    for unix.sys_read(int(stdin), &key[3], 1) > 0 {
         key[0] = key[1];
         key[1] = key[2];
         key[2] = key[3];
 
-        // fmt.print(key[2], "\n");
-        handleInput(key);
-        // if (key[0] == 10) {
-        //     if len(buf) == 0 do break;
-        //     fmt.printf("%c", key[0]);
-        //     run(buf);
-        //     clear(&buf);
-        // } else if (key[0] == 127) {
-        //     fmt.print("\b \b");
-        //     pop(&buf);
-        // } else if ((key[0] >= 48 && key[0] <= 57) || (key[0] >= 40 && key[0] <= 43) || key[0] == 45 || key[0] == 47 || key[0] == 123 || key[0] == 125 || key[0] == 91 || key[0] == 93 || key[0] == 94) {
-        //     append(&buf, key[0]);
-        //     fmt.printf("%c", key[0]);
-        // }
+        if (handleInput(key)) do break;
     }
 }
