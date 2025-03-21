@@ -318,11 +318,58 @@ setupTermios :: proc() {
     tcsetattr(stdin, TCSANOW, &raw);
 }
 
+cursor := 0;
+buf := make([dynamic]u8, 0, 4096);
+
+handleInput :: proc(key: [4]u8) {
+    if (key[0] == 27 && key[1] == 91) {
+        switch key[2] {
+        case 65: // up
+            break;
+        case 66: // down
+            break;
+        case 67: // right
+            if (cursor < len(buf)) {
+                cursor += 1;
+            }
+            break;
+        case 68: // left
+            if (cursor > 0) {
+                cursor -= 1;
+            }
+            break;
+        }
+    } else {
+        switch key[2] {
+        case '0'..='9','*', '+', '-', '/', '^':
+            fmt.printf("%c", key[2]);
+            append(&buf, key[2]);
+            cursor += 1;
+            break;
+        case 10: // enter
+            break;
+        case 127: // backspace
+            if (cursor > 0) {
+                for i in cursor-1..<len(buf)-1 {
+                    buf[i] = buf[i+1];
+                }
+                resize(&buf, len(buf)-1);
+                cursor -= 1;
+            }
+            break;
+        }
+    }
+
+    // fmt.printf("%s %d\n", string(buf[:len(buf)]), cursor);
+    fmt.printf("\r\x1b[K");
+    fmt.print(string(buf[:len(buf)]));
+
+}
+
 main :: proc() {
     setupTermios();
     defer tcsetattr(stdin, TCSANOW, &old);
 
-    buf := make([dynamic]u8, 0, 4096);
     defer delete(buf);
     defer delete(tokens);
 
@@ -343,20 +390,25 @@ main :: proc() {
         return;
     }
 
-    key: [1]u8;
+    key: [4]u8;
     for unix.sys_read(int(stdin), &key[0], 1) > 0 {
-        // fmt.print(key[0], "\n");
-        if (key[0] == 10) {
-            if len(buf) == 0 do break;
-            fmt.printf("%c", key[0]);
-            run(buf);
-            clear(&buf);
-        } else if (key[0] == 127) {
-            fmt.print("\b \b");
-            pop(&buf);
-        } else if ((key[0] >= 48 && key[0] <= 57) || (key[0] >= 40 && key[0] <= 43) || key[0] == 45 || key[0] == 47 || key[0] == 123 || key[0] == 125 || key[0] == 91 || key[0] == 93 || key[0] == 94) {
-            append(&buf, key[0]);
-            fmt.printf("%c", key[0]);
-        }
+        key[0] = key[1];
+        key[1] = key[2];
+        key[2] = key[3];
+
+        // fmt.print(key[2], "\n");
+        handleInput(key);
+        // if (key[0] == 10) {
+        //     if len(buf) == 0 do break;
+        //     fmt.printf("%c", key[0]);
+        //     run(buf);
+        //     clear(&buf);
+        // } else if (key[0] == 127) {
+        //     fmt.print("\b \b");
+        //     pop(&buf);
+        // } else if ((key[0] >= 48 && key[0] <= 57) || (key[0] >= 40 && key[0] <= 43) || key[0] == 45 || key[0] == 47 || key[0] == 123 || key[0] == 125 || key[0] == 91 || key[0] == 93 || key[0] == 94) {
+        //     append(&buf, key[0]);
+        //     fmt.printf("%c", key[0]);
+        // }
     }
 }
