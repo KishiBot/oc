@@ -34,6 +34,7 @@ token_e :: enum {
     VAR,
     OP,
     LOGIC,
+    FUN,
 };
 
 op_e :: enum {
@@ -55,6 +56,8 @@ precedence := [len(op_e)]u32 {
     3,
     3,
 };
+
+functions := []string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil"};
 
 token_s :: struct {
     type: token_e,
@@ -89,7 +92,11 @@ parsePrimary :: proc() -> (ret: ^node_s) {
         return ret;
     }
 
-    if (tokens[0].type == token_e.OP) {
+    if (tokens[0].type == token_e.FUN) {
+        ret.token = pop_front(&tokens);
+        pop_front(&tokens);
+        ret.middle = parseExpr(parsePrimary(), 0);
+    } else if (tokens[0].type == token_e.OP) {
         if (tokens[0].op == op_e.MUL || tokens[0].op == op_e.DIV) {
             parseErr = true;
             fmt.eprint("'*' or '/' cannot be a primary expression..\n");
@@ -175,6 +182,28 @@ solve :: proc(cur: ^node_s) -> f64 {
             return 0;
         }
     }
+    if (cur.token.type == token_e.FUN) {
+        switch (cur.token.var) {
+        case "sin":
+            return math.sin(solve(cur.middle));
+        case "cos":
+            return math.cos(solve(cur.middle));
+        case "tan":
+            return math.tan(solve(cur.middle));
+        case "cot":
+            return 1 / math.tan(solve(cur.middle));
+        case "rad":
+            return math.to_radians(solve(cur.middle));
+        case "deg":
+            return math.to_degrees(solve(cur.middle));
+        case "round":
+            return math.round(solve(cur.middle));
+        case "floor":
+            return math.floor(solve(cur.middle));
+        case "ceil":
+            return math.ceil(solve(cur.middle));
+        }
+    }
 
     if (cur.token.op == op_e.ADD) {
         return solve(cur.left) + solve(cur.right);
@@ -241,6 +270,14 @@ addNum :: proc(num: ^f64, buildingNum: ^bool, decimal: ^u64, var: ^[dynamic]u8) 
     if (len(var) != 0) {
         token: token_s = {type=token_e.VAR};
         token.var = strings.clone(string(var^[:]));
+
+        for fun in functions {
+            if token.var == fun {
+                token.type = token_e.FUN;
+                break;
+            }
+        }
+
         append(&tokens, token);
         clear(var);
     } else {
@@ -328,6 +365,12 @@ preprocess :: proc() {
             }
         }
 
+        if (token.type == token_e.FUN && (i == len(tokens)-1 || tokens[i+1].type != token_e.LOGIC || tokens[i+1].op != op_e.PAROP)) {
+            fmt.eprint("Function has to be followed by '('..\n");
+            tokenizeErr = true;
+            return;
+        }
+
         if (token.type == token_e.LOGIC && token.op == op_e.PAROP) {
             append(&par, token.var);
         } else if (token.type == token_e.LOGIC && token.op == op_e.PARCL) {
@@ -349,6 +392,20 @@ preprocess :: proc() {
         }
 
         last = token;
+    }
+
+    if len(par) > 0 {
+        missing: string;
+        switch (par[len(par)-1]) {
+        case "(":
+            missing = ")"
+        case "[":
+            missing = "]"
+        case "{":
+            missing = "}"
+        }
+        fmt.eprint("Expected: '", missing, "'..\n", sep="");
+        tokenizeErr = true;
     }
 }
 
@@ -440,6 +497,7 @@ setupTermios :: proc() {
 }
 
 handleInput :: proc(key: [4]u8) -> (exit: bool) {
+    if (key[1] == '\x1b') do return;
     if (key[0] == '\x1b' && key[1] == '[') {
         switch key[2] {
         case 65: // up
@@ -485,8 +543,8 @@ handleInput :: proc(key: [4]u8) -> (exit: bool) {
             clear(&buf);
             return;
         case 127: // backspace
-            if (cursor > 0) {
-                for i in cursor-1..<len(buf)-1 {
+            if (cursor > 1) {
+                for i in cursor-2..<len(buf)-1 {
                     buf[i] = buf[i+1];
                 }
                 resize(&buf, len(buf)-1);
