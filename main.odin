@@ -71,6 +71,8 @@ node_s :: struct {
 }
 
 tokens := make([dynamic]token_s, 0, 2048);
+parseErr := false;
+tokenizeErr := false;
 
 isRightAssociative :: proc(op: op_e) -> bool {
     if (op == op_e.POW) do return true;
@@ -79,17 +81,27 @@ isRightAssociative :: proc(op: op_e) -> bool {
 
 parsePrimary :: proc() -> (ret: ^node_s) {
     ret = new(node_s);
+    ret.token = {type=token_e.NUM, val=0};
+
+    if len(tokens) == 0 {
+        fmt.eprint("Missing primary token..\n");
+        parseErr = true;
+        return ret;
+    }
+
     if (tokens[0].type == token_e.OP) {
         if (tokens[0].op == op_e.MUL || tokens[0].op == op_e.DIV) {
+            parseErr = true;
             fmt.eprint("'*' or '/' cannot be a primary expression..\n");
-            return nil;
+            return ret;
         }
 
         ret.token = {type=token_e.NUM, val=0};
     } else if (tokens[0].type == token_e.LOGIC) {
         if (tokens[0].op == op_e.PARCL) {
+            parseErr = true;
             fmt.eprint("')' cannot be a primary expression..\n");
-            return nil;
+            return ret;
         }
 
         free(ret);
@@ -103,6 +115,8 @@ parsePrimary :: proc() -> (ret: ^node_s) {
 }
 
 parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
+    if (parseErr) do return nil;
+
     if (lhs == nil) do return nil;
     if len(tokens) == 0 do return lhs;
     lhs := lhs;
@@ -124,9 +138,9 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
         for (lookAhead.type == token_e.OP && precedence[lookAhead.op] >= precedence[op.token.op]) {
             if (precedence[lookAhead.op] == precedence[op.token.op]) {
                 if (!isRightAssociative(lookAhead.op)) do break;
-                rhs = parseExpr(rhs, precedence[op.token.type]);
+                rhs = parseExpr(rhs, precedence[op.token.op]);
             } else {
-                rhs = parseExpr(rhs, precedence[op.token.type] + 1);
+                rhs = parseExpr(rhs, precedence[op.token.op] + 1);
             }
 
             if (len(tokens) == 0) do break;
@@ -156,6 +170,9 @@ solve :: proc(cur: ^node_s) -> f64 {
             return math.PI;
         case "e", "E":
             return math.e;
+        case:
+            fmt.print("Unkown variable: ", cur.token.var, "\n", sep="");
+            return 0;
         }
     }
 
@@ -267,10 +284,14 @@ tokenize :: proc(buf: ^[dynamic]u8) {
             append(&tokens, token_s({type=token_e.OP, op=op_e.DIV}));
         } else if (ch == '(' || ch == '[' || ch == '{') {
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PAROP}));
+            append(&var, ch);
+            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PAROP, var=strings.clone(string(var[:]))}));
+            clear(&var);
         } else if (ch == ')' || ch == ']' || ch == '}') {
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PARCL}));
+            append(&var, ch);
+            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PARCL, var=strings.clone(string(var[:]))}));
+            clear(&var);
         } else if ch == '.' {
             if decimal > 0 {
                 fmt.eprint("Two instances of '.' in one token..\n");
@@ -293,13 +314,38 @@ tokenize :: proc(buf: ^[dynamic]u8) {
 
 preprocess :: proc() {
     last := tokens[0];
-    for i in 1..<len(tokens) {
+    par := make([dynamic]string, 0, 8);
+    defer delete(par);
+
+    for i in 0..<len(tokens) {
         token := tokens[i];
 
-        if (last.type == token_e.NUM && token.type == token_e.LOGIC && token.op == op_e.PAROP) {
-            for j := len(tokens)-1; j > i; j-=1 do tokens[j] = tokens[j-1];
-            tokens[i] = {type=token_e.OP, op=op_e.MUL};
-            token = tokens[i];
+        if (i != 0) {
+            if (last.type == token_e.NUM && token.type == token_e.LOGIC && token.op == op_e.PAROP) {
+                t: token_s = {type=token_e.OP, op=op_e.MUL};
+                inject_at(&tokens, i, t);
+                token = tokens[i];
+            }
+        }
+
+        if (token.type == token_e.LOGIC && token.op == op_e.PAROP) {
+            append(&par, token.var);
+        } else if (token.type == token_e.LOGIC && token.op == op_e.PARCL) {
+            lastPar := pop(&par);
+            test: string;
+            switch (lastPar) {
+            case "(":
+                test = ")"
+            case "[":
+                test = "]"
+            case "{":
+                test = "}"
+            }
+            if (token.var != test) {
+                fmt.eprint("Expected: '", test, "', got: '", token.var, "'..\n", sep="");
+                tokenizeErr = true;
+                return;
+            }
         }
 
         last = token;
@@ -342,9 +388,9 @@ checkFlag :: proc(arg: string) -> (isFlag: bool) {
     return false;
 }
 
-run :: proc(buf: [dynamic]u8) {
+run :: proc(buf: ^[dynamic]u8) {
     buf := buf;
-    append(&buf, '\n');
+    append(buf, '\n');
 
     if (len(history) == historyCount) {
         pop_front(&history);
@@ -358,13 +404,24 @@ run :: proc(buf: [dynamic]u8) {
         historyCursor = len(history);
     }
 
-    tokenize(&buf);
+    tokenize(buf);
+    defer {
+        clear(buf);
+        clear(&tokens);
+    }
+
     if (len(tokens) > 0) {
         preprocess();
-        tree := parseExpr(parsePrimary(), 0);
-        if (tree == nil) do return;
-        ans = solve(tree);
-        fmt.print(ans, "\n");
+        if (!tokenizeErr) {
+            tree := parseExpr(parsePrimary(), 0);
+            if (tree == nil) do return;
+            if (!parseErr) {
+                ans = solve(tree);
+                fmt.print(ans, "\n");
+            }
+        }
+        tokenizeErr = false;
+        parseErr = false;
 
         when ODIN_DEBUG {
             drawGraph(tree);
@@ -413,7 +470,7 @@ handleInput :: proc(key: [4]u8) -> (exit: bool) {
         }
     } else {
         switch key[2] {
-        case '0'..='9','*', '+', '-', '/', '^', 'a'..='z', 'A'..='Z', ' ', '.':
+        case '0'..='9','*', '+', '-', '/', '^', 'a'..='z', 'A'..='Z', ' ', '.', '(', ')', '[', ']', '{', '}':
             resize(&buf, len(buf)+1);
             for i := len(buf)-1; i >= cursor; i-=1 {
                 buf[i] = buf[i-1];
@@ -423,7 +480,7 @@ handleInput :: proc(key: [4]u8) -> (exit: bool) {
         case 10: // enter
             if (len(buf) == 0) do return true;
             fmt.printf("\r\x1b[K%s\x1b[%dG\n", string(buf[:len(buf)]),  cursor);
-            run(buf);
+            run(&buf);
             cursor = 1;
             clear(&buf);
             return;
@@ -456,13 +513,10 @@ main :: proc() {
             if (checkFlag(arg)) do continue;
 
             append(&buf, arg);
-            if (separate) {
-                run(buf);
-                clear(&buf);
-            }
+            if (separate) do run(&buf);
         }
 
-        if (!separate) do run(buf);
+        if (!separate) do run(&buf);
 
         return;
     }
