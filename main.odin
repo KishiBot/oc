@@ -168,6 +168,7 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
 }
 
 solve :: proc(cur: ^node_s) -> f64 {
+    defer free(cur);
     if (cur.token.type == token_e.NUM) do return cur.token.val;
     if (cur.token.type == token_e.VAR) {
         switch (cur.token.var) {
@@ -227,6 +228,8 @@ drawNode :: proc(f: os.Handle, node: ^node_s) {
         fmt.fprint(f, "    ", nodeCounter, " [label=\"", node.token.type, ": ", node.token.op, "\"]\n");
     } else if (node.token.type == token_e.NUM) {
         fmt.fprint(f, "    ", nodeCounter, " [label=\"", node.token.type, ": ", node.token.val, "\"]\n");
+    } else {
+        fmt.fprint(f, "    ", nodeCounter, "[label=\"", node.token.type, ": ", node.token.var, "\"]\n");
     }
 
     if (node.left != nil) {
@@ -291,11 +294,12 @@ addNum :: proc(num: ^f64, buildingNum: ^bool, decimal: ^u64, var: ^[dynamic]u8) 
     }
 }
 
+var := make([dynamic]u8, 0, 64);
 tokenize :: proc(buf: ^[dynamic]u8) {
+    clear(&var);
     num: f64 = 0;
     buildingNum := false;
     decimal: u64 = 0;
-    var := make([dynamic]u8, 0, 64);
 
     for ch, index in buf^[:len(buf)] {
         if ch == ' ' || ch == '\n' {
@@ -349,10 +353,10 @@ tokenize :: proc(buf: ^[dynamic]u8) {
     }
 }
 
+par := make([dynamic]string, 0, 8);
 preprocess :: proc() {
     last := tokens[0];
-    par := make([dynamic]string, 0, 8);
-    defer delete(par);
+    clear(&par);
 
     for i in 0..<len(tokens) {
         token := tokens[i];
@@ -476,13 +480,13 @@ run :: proc(buf: ^[dynamic]u8) {
                 ans = solve(tree);
                 fmt.print(ans, "\n");
             }
+
+            when ODIN_DEBUG {
+                drawGraph(tree);
+            }
         }
         tokenizeErr = false;
         parseErr = false;
-
-        when ODIN_DEBUG {
-            drawGraph(tree);
-        }
     }
 }
 
@@ -564,6 +568,9 @@ main :: proc() {
 
     defer delete(buf);
     defer delete(tokens);
+    defer delete(var);
+    defer delete(par);
+    defer delete(history);
 
     if len(os.args) > 1 {
         offset: int = 0;
