@@ -438,7 +438,7 @@ ans: f64 = 0;
 checkFlag :: proc(arg: string) -> (isFlag: bool) {
     if (arg[0] != '-') do return false;
 
-    if (arg[:10] == "--history=") {
+    if (len(arg) >= 11 && arg[:10] == "--history=") {
         historyCount = strconv.atoi(arg[10:]);
         return true;
     }
