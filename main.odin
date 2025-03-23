@@ -168,7 +168,10 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
 }
 
 solve :: proc(cur: ^node_s) -> f64 {
-    defer free(cur);
+    when !ODIN_DEBUG {
+        defer free(cur);
+    }
+
     if (cur.token.type == token_e.NUM) do return cur.token.val;
     if (cur.token.type == token_e.VAR) {
         switch (cur.token.var) {
@@ -223,6 +226,8 @@ solve :: proc(cur: ^node_s) -> f64 {
 
 nodeCounter := 0;
 drawNode :: proc(f: os.Handle, node: ^node_s) {
+    defer free(node);
+
     myCount := nodeCounter;
     if (node.token.type == token_e.OP) {
         fmt.fprint(f, "    ", nodeCounter, " [label=\"", node.token.type, ": ", node.token.op, "\"]\n");
@@ -570,7 +575,10 @@ main :: proc() {
     defer delete(tokens);
     defer delete(var);
     defer delete(par);
-    defer delete(history);
+    defer {
+        for &str in history do delete(str);
+        delete(history);
+    }
 
     if len(os.args) > 1 {
         offset: int = 0;
