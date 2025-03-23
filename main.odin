@@ -45,6 +45,7 @@ op_e :: enum {
     POW,
     PAROP,
     PARCL,
+    SEP,
 }
 
 precedence := [len(op_e)]u32 {
@@ -55,9 +56,32 @@ precedence := [len(op_e)]u32 {
     2,
     3,
     3,
+    3,
 };
 
-functions := []string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil"};
+funcDescription := `Each function has following structure: func(..)
+Function can have either set number of arguments ( sin(n) ), or unlimited ( max(..) ).
+Multiple arguments have to be separated by ',' ( max(n, m) ).
+
+ - sin(n)       returns sin of n, n is expected in radians
+ - cos(n)       returns cos of n, n is expected in radians
+ - tan(n)       returns tan of n, n is expected in radians
+ - cot(n)       returns cot of n, n is expected in radians
+
+ - rad(n)       converts n from degres to radians
+ - deg(n)       converts n from radians to degrees
+
+ - round(n)     rounds n, round(2.4) = 2, round(2.5) = 3
+ - floor(n)     floors n, floor(2.5) = 2
+ - ceil(n)      ceils n,  ceil(2.4) = 3
+
+ - max(..)      returns max of all arguments
+ - min(..)      returns min of all arguments
+`;
+functions := [?]string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil", "max", "min"};
+funcArgNum := [?]int {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0
+}
 
 token_s :: struct {
     type: token_e,
@@ -69,8 +93,8 @@ token_s :: struct {
 node_s :: struct {
     token: token_s,
     left: ^node_s,
-    middle: ^node_s,
     right: ^node_s,
+    children: [dynamic]^node_s,
 }
 
 tokens := make([dynamic]token_s, 0, 2048);
@@ -94,8 +118,11 @@ parsePrimary :: proc() -> (ret: ^node_s) {
 
     if (tokens[0].type == token_e.FUN) {
         ret.token = pop_front(&tokens);
-        pop_front(&tokens);
-        ret.middle = parseExpr(parsePrimary(), 0);
+        ret.children = make([dynamic]^node_s, 0, 8);
+        for len(tokens) > 0 && tokens[0].type == token_e.LOGIC && (tokens[0].op == op_e.PAROP || tokens[0].op == op_e.SEP) {
+            pop_front(&tokens);
+            append(&ret.children, parseExpr(parsePrimary(), 0));
+        }
     } else if (tokens[0].type == token_e.OP) {
         if (tokens[0].op == op_e.MUL || tokens[0].op == op_e.DIV) {
             parseErr = true;
@@ -161,7 +188,7 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
     } 
 
     if (lookAhead.type == token_e.LOGIC) {
-        pop_front(&tokens);
+        if (lookAhead.op != op_e.SEP) do pop_front(&tokens);
     }
 
     return lhs;
@@ -169,7 +196,10 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
 
 solve :: proc(cur: ^node_s) -> f64 {
     when !ODIN_DEBUG {
-        defer free(cur);
+        defer {
+            if (cur.children != nil) do delete(cur.children);
+            free(cur);
+        }
     }
 
     if (cur.token.type == token_e.NUM) do return cur.token.val;
@@ -187,25 +217,60 @@ solve :: proc(cur: ^node_s) -> f64 {
         }
     }
     if (cur.token.type == token_e.FUN) {
+        i := 0;
+        for func, index in functions {
+            if (cur.token.var == func) {
+                i = index;
+                break;
+            }
+        }
+
+        if (funcArgNum[i] == 0) {
+            if (len(cur.children) == 0) {
+                fmt.eprintf("Invalide number of arguments. Expected: 1+, got: '%d'..\n", funcArgNum[i], len(cur.children));
+                parseErr = true;
+                return 0;
+            }
+
+        } else if (len(cur.children) != funcArgNum[i]) {
+            fmt.eprintf("Invalide number of arguments. Expected: '%d', got: '%d'..\n", funcArgNum[i], len(cur.children));
+            parseErr = true;
+            return 0;
+        }
+
         switch (cur.token.var) {
         case "sin":
-            return math.sin(solve(cur.middle));
+            return math.sin(solve(cur.children[0]));
         case "cos":
-            return math.cos(solve(cur.middle));
+            return math.cos(solve(cur.children[0]));
         case "tan":
-            return math.tan(solve(cur.middle));
+            return math.tan(solve(cur.children[0]));
         case "cot":
-            return 1 / math.tan(solve(cur.middle));
+            return 1 / math.tan(solve(cur.children[0]));
         case "rad":
-            return math.to_radians(solve(cur.middle));
+            return math.to_radians(solve(cur.children[0]));
         case "deg":
-            return math.to_degrees(solve(cur.middle));
+            return math.to_degrees(solve(cur.children[0]));
         case "round":
-            return math.round(solve(cur.middle));
+            return math.round(solve(cur.children[0]));
         case "floor":
-            return math.floor(solve(cur.middle));
+            return math.floor(solve(cur.children[0]));
         case "ceil":
-            return math.ceil(solve(cur.middle));
+            return math.ceil(solve(cur.children[0]));
+        case "max":
+            max := math.NEG_INF_F64;
+            for child in cur.children {
+                solved := solve(child);
+                if (solved > max) do max = solved;
+            }
+            return max;
+        case "min":
+            min := math.INF_F64;
+            for child in cur.children {
+                solved := solve(child);
+                if (solved < min) do min = solved;
+            }
+            return min;
         }
     }
 
@@ -226,7 +291,10 @@ solve :: proc(cur: ^node_s) -> f64 {
 
 nodeCounter := 0;
 drawNode :: proc(f: os.Handle, node: ^node_s) {
-    defer free(node);
+    defer {
+        if (node.children != nil) do delete(node.children);
+        free(node);
+    }
 
     myCount := nodeCounter;
     if (node.token.type == token_e.OP) {
@@ -242,10 +310,12 @@ drawNode :: proc(f: os.Handle, node: ^node_s) {
         fmt.fprint(f, "    ", myCount, " -> ", nodeCounter, ";\n");
         drawNode(f, node.left);
     }
-    if (node.middle != nil) {
-        nodeCounter += 1;
-        fmt.fprint(f, "    ", myCount, " -> ", nodeCounter, ";\n");
-        drawNode(f, node.middle);
+    if (node.children != nil) {
+        for child in node.children {
+            nodeCounter += 1;
+            fmt.fprint(f, "    ", myCount, " -> ", nodeCounter, ";\n");
+            drawNode(f, child);
+        }
     }
     if (node.right != nil) {
         nodeCounter += 1;
@@ -307,44 +377,50 @@ tokenize :: proc(buf: ^[dynamic]u8) {
     decimal: u64 = 0;
 
     for ch, index in buf^[:len(buf)] {
-        if ch == ' ' || ch == '\n' {
+        switch ch {
+        case ' ', '\n':
             addNum(&num, &buildingNum, &decimal, &var);
-        } else if ch == '+' {
+        case '+':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.ADD}));
-        } else if (ch == '-') {
+        case '-':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.SUB}));
-        } else if (ch == '*') {
+        case '*':
             addNum(&num, &buildingNum, &decimal, &var);
             if (len(tokens) > 0 && tokens[len(tokens)-1].type == token_e.OP && tokens[len(tokens)-1].op == op_e.MUL) {
                 tokens[len(tokens)-1].op = op_e.POW;
             } else {
                 append(&tokens, token_s({type=token_e.OP, op=op_e.MUL}));
             }
-        } else if (ch == '^') {
+        case '^':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.POW}));
-        } else if (ch == '/') {
+        case '/':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.DIV}));
-        } else if (ch == '(' || ch == '[' || ch == '{') {
+        case '(', '[', '{':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&var, ch);
             append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PAROP, var=strings.clone(string(var[:]))}));
             clear(&var);
-        } else if (ch == ')' || ch == ']' || ch == '}') {
+        case ')', ']', '}':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&var, ch);
             append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PARCL, var=strings.clone(string(var[:]))}));
             clear(&var);
-        } else if ch == '.' {
+        case ',':
+            addNum(&num, &buildingNum, &decimal, &var);
+            append(&var, ch);
+            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.SEP, var=strings.clone(string(var[:]))}));
+            clear(&var);
+        case '.':
             if decimal > 0 {
                 fmt.eprint("Two instances of '.' in one token..\n");
                 resize(buf, 0);
             }
             decimal = 10;
-        } else if ch >= '0' && ch <= '9' {
+        case '0'..='9':
             if decimal > 0 {
                 num += (f64(ch)-48) / f64(decimal);
                 decimal *= 10;
@@ -352,7 +428,7 @@ tokenize :: proc(buf: ^[dynamic]u8) {
                 buildingNum = true;
                 num = num*10 + f64(ch)-48;
             }
-        } else if (ch >= 'a' && ch <= 'z') || (ch >= 'A' || ch <= 'Z') {
+        case 'a'..='z', 'A'..='Z':
             append(&var, ch);
         }
     }
@@ -363,7 +439,7 @@ preprocess :: proc() {
     last := tokens[0];
     clear(&par);
 
-    for i in 0..<len(tokens) {
+    for i := 0; i < len(tokens); i += 1 {
         token := tokens[i];
 
         if (i != 0) {
@@ -371,6 +447,10 @@ preprocess :: proc() {
                 t: token_s = {type=token_e.OP, op=op_e.MUL};
                 inject_at(&tokens, i, t);
                 token = tokens[i];
+            } else if (last.type == token_e.LOGIC && last.op == op_e.SEP && token.type == last.type && token.op == last.op) {
+                ordered_remove(&tokens, i);
+                i -= 1;
+                continue;
             }
         }
 
@@ -378,6 +458,9 @@ preprocess :: proc() {
             fmt.eprint("Function has to be followed by '('..\n");
             tokenizeErr = true;
             return;
+        } else if (token.type == token_e.FUN) {
+            t: token_s = {type=token_e.LOGIC, op=op_e.SEP};
+            inject_at(&tokens, i+2, t);
         }
 
         if (token.type == token_e.LOGIC && token.op == op_e.PAROP) {
@@ -423,6 +506,7 @@ help := `Cli calculator
 --help           see help
 -s (--separate)  take each argument as separate problems
 --history=n      set number of remembered problems (default 256)
+-f (--functions) returns a list of all functions implemented
 `
 
 historyCount: int = 256;
@@ -449,6 +533,9 @@ checkFlag :: proc(arg: string) -> (isFlag: bool) {
         return true;
     case "-s", "--separate":
         separate = true;
+        return true;
+    case "-f", "--functions":
+        fmt.print(funcDescription, "\n");
         return true;
     }
     return false;
@@ -483,7 +570,7 @@ run :: proc(buf: ^[dynamic]u8) {
             if (tree == nil) do return;
             if (!parseErr) {
                 ans = solve(tree);
-                fmt.print(ans, "\n");
+                if (!parseErr) do fmt.print(ans, "\n");
             }
 
             when ODIN_DEBUG {
@@ -537,7 +624,7 @@ handleInput :: proc(key: [4]u8) -> (exit: bool) {
         }
     } else {
         switch key[2] {
-        case '0'..='9','*', '+', '-', '/', '^', 'a'..='z', 'A'..='Z', ' ', '.', '(', ')', '[', ']', '{', '}':
+        case '0'..='9','*', '+', '-', '/', '^', 'a'..='z', 'A'..='Z', ' ', '.', '(', ')', '[', ']', '{', '}', ',':
             resize(&buf, len(buf)+1);
             for i := len(buf)-1; i >= cursor; i-=1 {
                 buf[i] = buf[i-1];
