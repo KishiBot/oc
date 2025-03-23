@@ -121,8 +121,13 @@ parsePrimary :: proc() -> (ret: ^node_s) {
         ret.children = make([dynamic]^node_s, 0, 8);
         for len(tokens) > 0 && tokens[0].type == token_e.LOGIC && (tokens[0].op == op_e.PAROP || tokens[0].op == op_e.SEP) {
             pop_front(&tokens);
-            append(&ret.children, parseExpr(parsePrimary(), 0));
+            append(&ret.children, parseExpr(parsePrimary(), 0, popLogic=false));
         }
+
+        if len(tokens) > 0 && tokens[0].type == token_e.LOGIC && tokens[0].op == op_e.PARCL {
+            pop_front(&tokens);
+        }
+
     } else if (tokens[0].type == token_e.OP) {
         if (tokens[0].op == op_e.MUL || tokens[0].op == op_e.DIV) {
             parseErr = true;
@@ -148,7 +153,7 @@ parsePrimary :: proc() -> (ret: ^node_s) {
     return ret;
 }
 
-parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
+parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = false) -> (ret: ^node_s) {
     if (parseErr) do return nil;
 
     if (lhs == nil) do return nil;
@@ -187,8 +192,8 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32) -> (ret: ^node_s) {
         if (len(tokens) == 0) do break;
     } 
 
-    if (lookAhead.type == token_e.LOGIC) {
-        if (lookAhead.op != op_e.SEP) do pop_front(&tokens);
+    if (popLogic && lookAhead.type == token_e.LOGIC) {
+        pop_front(&tokens);
     }
 
     return lhs;
@@ -227,13 +232,13 @@ solve :: proc(cur: ^node_s) -> f64 {
 
         if (funcArgNum[i] == 0) {
             if (len(cur.children) == 0) {
-                fmt.eprintf("Invalide number of arguments. Expected: 1+, got: '%d'..\n", funcArgNum[i], len(cur.children));
+                fmt.eprintf("Invalide number of arguments for function %s. Expected: 1+, got: '%d'..\n", cur.token.var, funcArgNum[i], len(cur.children));
                 parseErr = true;
                 return 0;
             }
 
         } else if (len(cur.children) != funcArgNum[i]) {
-            fmt.eprintf("Invalide number of arguments. Expected: '%d', got: '%d'..\n", funcArgNum[i], len(cur.children));
+            fmt.eprintf("Invalide number of arguments for function %s. Expected: '%d', got: '%d'..\n", cur.token.var, funcArgNum[i], len(cur.children));
             parseErr = true;
             return 0;
         }
