@@ -77,6 +77,8 @@ Multiple arguments have to be separated by ',' ( max(n, m) ).
 
  - max(..)      returns max of all arguments
  - min(..)      returns min of all arguments
+
+ - abs(n)       returns absolute value of n
 `;
 functions := [?]string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil", "max", "min", "abs"};
 funcArgNum := [?]int {
