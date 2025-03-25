@@ -18,20 +18,14 @@ cases=(
 "(2 + 3) * (4 - 2) / 2 ** 2"
 )
 
+odin build src -out=oc
+
 for item in "${cases[@]}"; do
-    # echo "---------------------"
-    # echo "$item"
-
+    echo "$item"
     python3 -c "print(eval('$item'))" > py.out
-    ./odinCalc "$item" > oc.out
-
-    # cat calc.out
-    # cat oc.out
-
-    # echo ""
+    ./oc "$item" > oc.out
 
     diff oc.out py.out
-    # echo "---------------------"
 done
 
 rm py.out oc.out
