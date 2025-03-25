@@ -29,6 +29,7 @@ TCSANOW :c.int : 0
 help :: `Cli calculator
 
  --help           see help
+ -v (--version)   see currently installed version
  -s (--separate)  take each argument as separate problems
  --history=n      set number of remembered problems (default 256)
  -f (--functions) returns a list of all functions implemented
@@ -99,6 +100,9 @@ checkFlag :: proc(arg: string) -> (isFlag: bool) {
         return true;
     case "-f", "--functions":
         fmt.print(funcDescription, "\n");
+        return true;
+    case "-v", "--version":
+        fmt.print("OC ", version, "\n", sep="");
         return true;
     }
     return false;

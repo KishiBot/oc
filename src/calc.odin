@@ -2,6 +2,8 @@ package main
 
 import "core:os"
 
+version := "1.0.0"
+
 main :: proc() {
     if len(os.args) > 1 {
         offset: int = 0;

@@ -4,6 +4,8 @@ import "core:strings"
 import "core:fmt"
 import "core:math"
 
+ans: f64;
+
 functions := [?]string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil", "max", "min", "abs"};
 funcArgNum := [?]int {
     1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1
