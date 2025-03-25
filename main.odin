@@ -141,6 +141,10 @@ parsePrimary :: proc() -> (ret: ^node_s) {
             parseErr = true;
             fmt.eprint("')' cannot be a primary expression..\n");
             return ret;
+        } else if (tokens[0].op == op_e.SEP) {
+            parseErr = true;
+            fmt.eprint("',' cannot be a primary expression..\n");
+            return ret;
         }
 
         free(ret);
@@ -153,7 +157,7 @@ parsePrimary :: proc() -> (ret: ^node_s) {
     return ret;
 }
 
-parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = false) -> (ret: ^node_s) {
+parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = true) -> (ret: ^node_s) {
     if (parseErr) do return nil;
 
     if (lhs == nil) do return nil;
@@ -288,7 +292,14 @@ solve :: proc(cur: ^node_s) -> f64 {
     } else if (cur.token.op == op_e.DIV) {
         return solve(cur.left) / solve(cur.right);
     } else if (cur.token.op == op_e.POW) {
-        return math.pow(solve(cur.left), solve(cur.right));
+        n := solve(cur.left);
+        exp := solve(cur.right);
+        if (((exp > -1 && exp < 0) || (exp > 0 && exp < 1)) && n < 0) {
+            fmt.eprint("Too complex..\n");
+            parseErr = true;
+            return 0;
+        }
+        return math.pow(n, exp);
     }
 
     return 0;
