@@ -78,9 +78,9 @@ Multiple arguments have to be separated by ',' ( max(n, m) ).
  - max(..)      returns max of all arguments
  - min(..)      returns min of all arguments
 `;
-functions := [?]string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil", "max", "min"};
+functions := [?]string {"sin", "cos", "tan", "cot", "rad", "deg", "round", "floor", "ceil", "max", "min", "abs"};
 funcArgNum := [?]int {
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1
 }
 
 token_s :: struct {
@@ -140,10 +140,6 @@ parsePrimary :: proc() -> (ret: ^node_s) {
         if (tokens[0].op == op_e.PARCL) {
             parseErr = true;
             fmt.eprint("')' cannot be a primary expression..\n");
-            return ret;
-        } else if (tokens[0].op == op_e.SEP) {
-            parseErr = true;
-            fmt.eprint("',' cannot be a primary expression..\n");
             return ret;
         }
 
@@ -220,6 +216,8 @@ solve :: proc(cur: ^node_s) -> f64 {
             return math.PI;
         case "e", "E":
             return math.e;
+        case "inf", "INF", "Inf":
+            return math.INF_F64;
         case:
             fmt.print("Unkown variable: ", cur.token.var, "\n", sep="");
             return 0;
@@ -280,6 +278,8 @@ solve :: proc(cur: ^node_s) -> f64 {
                 if (solved < min) do min = solved;
             }
             return min;
+        case "abs":
+            return math.abs(solve(cur.children[0]));
         }
     }
 
