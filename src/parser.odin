@@ -18,17 +18,6 @@ node_s :: struct {
     children: [dynamic]^node_s,
 }
 
-precedence := [len(op_e)]u32 {
-    0,
-    0,
-    1,
-    1,
-    2,
-    3,
-    3,
-    3,
-};
-
 parserErr := false;
 
 parList := make([dynamic]string, 0, 8);
@@ -40,7 +29,8 @@ preprocess :: proc() {
         token := tokens[i];
 
         if (i != 0) {
-            if (last.type == token_e.NUM && token.type == token_e.LOGIC && token.op == op_e.PAROP) {
+            if ((last.type == token_e.NUM || (last.type == token_e.OP && last.op == op_e.FACT)) \
+            && token.type == token_e.LOGIC && token.op == op_e.PAROP) {
                 t: token_s = {type=token_e.OP, op=op_e.MUL};
                 inject_at(&tokens, i, t);
                 token = tokens[i];
@@ -55,9 +45,6 @@ preprocess :: proc() {
             fmt.eprint("Function has to be followed by '('..\n");
             parserErr = true;
             return;
-        } else if (token.type == token_e.FUN) {
-            t: token_s = {type=token_e.LOGIC, op=op_e.SEP};
-            inject_at(&tokens, i+2, t);
         }
 
         if (token.type == token_e.LOGIC && token.op == op_e.PAROP) {
@@ -160,7 +147,13 @@ parsePrimary :: proc() -> (ret: ^node_s) {
             append(&ret.children, parseExpr(parsePrimary(), 0, popLogic=false));
         }
 
-        if len(tokens) > 0 && tokens[0].type == token_e.LOGIC && tokens[0].op == op_e.PARCL {
+        if len(tokens) == 0 {
+            fmt.eprint("Missing ')'\n");
+            parserErr = true;
+            return ret;
+        }
+
+        if tokens[0].type == token_e.LOGIC && tokens[0].op == op_e.PARCL {
             pop_front(&tokens);
         } else {
             fmt.eprint("Expected ')' got '", tokens[0].var, "'..\n", sep="");
@@ -168,15 +161,15 @@ parsePrimary :: proc() -> (ret: ^node_s) {
             return ret;
         }
     } else if (tokens[0].type == token_e.OP) {
-        if (tokens[0].op == op_e.MUL || tokens[0].op == op_e.DIV) {
+        if (tokens[0].op == op_e.MUL || tokens[0].op == op_e.DIV || tokens[0].op == op_e.FACT) {
             parserErr = true;
-            fmt.eprint("'*' or '/' cannot be a primary expression..\n");
+            fmt.eprint("'*', '/' and '!' cannot be a primary expression..\n");
             return ret;
         }
     } else if (tokens[0].type == token_e.LOGIC) {
-        if (tokens[0].op == op_e.PARCL) {
+        if (tokens[0].op != op_e.PAROP) {
             parserErr = true;
-            fmt.eprint("')' cannot be a primary expression..\n");
+            fmt.eprint("'", tokens[0].var, "' cannot be a primary expression..\n", sep="");
             return ret;
         }
 
@@ -192,14 +185,21 @@ parsePrimary :: proc() -> (ret: ^node_s) {
 
 parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = true) -> (ret: ^node_s) {
     if (parserErr || lhs == nil) do return nil;
-    if len(tokens) == 0 do return lhs;
+    if (len(tokens) == 0) do return lhs;
 
     lhs := lhs;
 
     lookAhead := tokens[0];
-    for (lookAhead.type == token_e.OP && precedence[lookAhead.op] >= minPrecedence) {
+    for (len(tokens) > 0 && lookAhead.type == token_e.OP && precedence[lookAhead.op] >= minPrecedence) {
         op := new(node_s);
         op.token = pop_front(&tokens);
+
+        if (op.token.op == op_e.FACT) {
+            op.left = lhs;
+            lhs = op;
+            lookAhead = tokens[0];
+            continue;
+        }
 
         rhs := parsePrimary();
         if len(tokens) == 0 {
@@ -213,9 +213,9 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = true) -> (r
         for (lookAhead.type == token_e.OP && precedence[lookAhead.op] >= precedence[op.token.op]) {
             if (precedence[lookAhead.op] == precedence[op.token.op]) {
                 if (!isRightAssociative(lookAhead.op)) do break;
-                rhs = parseExpr(rhs, precedence[op.token.op]);
+                rhs = parseExpr(rhs, precedence[op.token.op], popLogic);
             } else {
-                rhs = parseExpr(rhs, precedence[op.token.op] + 1);
+                rhs = parseExpr(rhs, precedence[op.token.op] + 1, popLogic);
             }
 
             if (len(tokens) == 0) do break;
@@ -225,7 +225,6 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = true) -> (r
         op.left = lhs;
         op.right = rhs;
         lhs = op;
-        if len(tokens) == 0 do break;
     } 
 
     if len(tokens) > 0 && popLogic && lookAhead.type == token_e.LOGIC {
@@ -351,6 +350,16 @@ solve :: proc(cur: ^node_s) -> f64 {
             return 0;
         }
         return math.pow(n, exp);
+    case .FACT:
+        n := solve(cur.left);
+        if (n < 0) {
+            fmt.eprint("For n! n must be >=0..\n")
+            parserErr = true;
+            return 0;
+        }
+        i, f := math.modf_f64(n)
+        if (f == 0 && i < 21) do return f64(math.factorial(int(i)));
+        return math.gamma_f64(n+1);
     }
 
     return 0;

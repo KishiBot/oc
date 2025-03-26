@@ -17,10 +17,23 @@ op_e :: enum {
     MUL,
     DIV,
     POW,
+    FACT,
     PAROP,
     PARCL,
     SEP,
 }
+
+precedence := [len(op_e)]u32 {
+    0,
+    0,
+    1,
+    1,
+    2,
+    3,
+    4,
+    4,
+    4,
+};
 
 token_s :: struct {
     type: token_e,
@@ -88,6 +101,9 @@ tokenize :: proc(buf: ^[dynamic]u8) {
         case '/':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&tokens, token_s({type=token_e.OP, op=op_e.DIV}));
+        case '!':
+            addNum(&num, &buildingNum, &decimal, &var);
+            append(&tokens, token_s({type=token_e.OP, op=op_e.FACT}));
         case '(', '[', '{':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&var, ch);
