@@ -3,7 +3,7 @@ package main
 import "core:strings"
 import "core:fmt"
 
-token_e:: enum {
+type_e:: enum {
     NUM,
     VAR,
     OP,
@@ -11,34 +11,49 @@ token_e:: enum {
     FUN,
 };
 
-op_e :: enum {
+subtype_e :: enum {
     ADD,
     SUB,
     MUL,
     DIV,
     POW,
     FACT,
+
     PAROP,
     PARCL,
     SEP,
+
+    MATOP,
+    MATCL,
 }
 
-precedence := [len(op_e)]u32 {
+precedence := [len(subtype_e)]u32 {
     0,
     0,
     1,
     1,
     2,
     3,
+
     4,
     4,
     4,
+
+    5,
+    5,
+};
+
+matrix_s :: struct {
+    width: u64,
+    height: u64,
+    data: [dynamic]f64
 };
 
 token_s :: struct {
-    type: token_e,
-    op: op_e,
+    type: type_e,
+    subtype: subtype_e,
     val: f64,
+    m: ^matrix_s,
     var: string,
 };
 
@@ -49,12 +64,12 @@ tokenizerErr := false;
 @(private="file")
 addNum :: proc(num: ^f64, buildingNum: ^bool, decimal: ^u64, var: ^[dynamic]u8) {
     if (len(var) != 0) {
-        token: token_s = {type=token_e.VAR};
+        token: token_s = {type=type_e.VAR};
         token.var = strings.clone(string(var^[:]));
 
         for fun in functions {
             if token.var == fun {
-                token.type = token_e.FUN;
+                token.type = type_e.FUN;
                 break;
             }
         }
@@ -64,7 +79,7 @@ addNum :: proc(num: ^f64, buildingNum: ^bool, decimal: ^u64, var: ^[dynamic]u8) 
     } else {
         buildingNum := buildingNum;
         if (buildingNum^) {
-            append(&tokens, token_s({type=token_e.NUM, val=num^}));
+            append(&tokens, token_s({type=type_e.NUM, val=num^}));
             buildingNum^ = false;
             decimal^ = 0;
             num^ = 0;
@@ -84,40 +99,53 @@ tokenize :: proc(buf: ^[dynamic]u8) {
             addNum(&num, &buildingNum, &decimal, &var);
         case '+':
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.OP, op=op_e.ADD}));
+            append(&tokens, token_s({type=type_e.OP, subtype=subtype_e.ADD}));
         case '-':
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.OP, op=op_e.SUB}));
+            append(&tokens, token_s({type=type_e.OP, subtype=subtype_e.SUB}));
         case '*':
             addNum(&num, &buildingNum, &decimal, &var);
-            if (len(tokens) > 0 && tokens[len(tokens)-1].type == token_e.OP && tokens[len(tokens)-1].op == op_e.MUL) {
-                tokens[len(tokens)-1].op = op_e.POW;
+            if (len(tokens) > 0 && tokens[len(tokens)-1].type == type_e.OP && tokens[len(tokens)-1].subtype == subtype_e.MUL) {
+                tokens[len(tokens)-1].subtype = subtype_e.POW;
             } else {
-                append(&tokens, token_s({type=token_e.OP, op=op_e.MUL}));
+                append(&tokens, token_s({type=type_e.OP, subtype=subtype_e.MUL}));
             }
         case '^':
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.OP, op=op_e.POW}));
+            append(&tokens, token_s({type=type_e.OP, subtype=subtype_e.POW}));
         case '/':
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.OP, op=op_e.DIV}));
+            append(&tokens, token_s({type=type_e.OP, subtype=subtype_e.DIV}));
         case '!':
             addNum(&num, &buildingNum, &decimal, &var);
-            append(&tokens, token_s({type=token_e.OP, op=op_e.FACT}));
-        case '(', '[', '{':
+            append(&tokens, token_s({type=type_e.OP, subtype=subtype_e.FACT}));
+
+        case '(':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&var, ch);
-            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PAROP, var=strings.clone(string(var[:]))}));
+            append(&tokens, token_s({type=type_e.LOGIC, subtype=subtype_e.PAROP, var=strings.clone(string(var[:]))}));
             clear(&var);
-        case ')', ']', '}':
+        case ')':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&var, ch);
-            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.PARCL, var=strings.clone(string(var[:]))}));
+            append(&tokens, token_s({type=type_e.LOGIC, subtype=subtype_e.PARCL, var=strings.clone(string(var[:]))}));
             clear(&var);
+
+        case '[':
+            addNum(&num, &buildingNum, &decimal, &var);
+            append(&var, ch);
+            append(&tokens, token_s({type=type_e.LOGIC, subtype=subtype_e.MATOP, var=strings.clone(string(var[:]))}));
+            clear(&var);
+        case ']':
+            addNum(&num, &buildingNum, &decimal, &var);
+            append(&var, ch);
+            append(&tokens, token_s({type=type_e.LOGIC, subtype=subtype_e.MATCL, var=strings.clone(string(var[:]))}));
+            clear(&var);
+
         case ',':
             addNum(&num, &buildingNum, &decimal, &var);
             append(&var, ch);
-            append(&tokens, token_s({type=token_e.LOGIC, op=op_e.SEP, var=strings.clone(string(var[:]))}));
+            append(&tokens, token_s({type=type_e.LOGIC, subtype=subtype_e.SEP, var=strings.clone(string(var[:]))}));
             clear(&var);
         case '.':
             if decimal > 0 {

@@ -112,6 +112,7 @@ checkFlag :: proc(arg: string) -> (isFlag: bool) {
 key: [4]u8;
 
 handleInput :: proc() {
+    fmt.printf("\x1b[2J\x1b[H");
     for unix.sys_read(int(stdin), &key[3], 1) > 0 {
         key[0] = key[1];
         key[1] = key[2];
@@ -161,6 +162,6 @@ handleInput :: proc() {
             }
         }
 
-        fmt.printf("\r\x1b[K%s\x1b[%dG", string(inputBuf[:len(inputBuf)]),  cursor);
+        fmt.printf("\r\x1b[2J\x1b[H%s\x1b[%dG", string(inputBuf[:len(inputBuf)]),  cursor);
     }
 }

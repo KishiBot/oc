@@ -15,9 +15,9 @@ drawNode :: proc(f: os.Handle, node: ^node_s) {
     }
 
     myCount := nodeCounter;
-    if (node.token.type == token_e.OP) {
-        fmt.fprint(f, "    ", nodeCounter, " [label=\"", node.token.type, ": ", node.token.op, "\"]\n");
-    } else if (node.token.type == token_e.NUM) {
+    if (node.token.type == .OP) {
+        fmt.fprint(f, "    ", nodeCounter, " [label=\"", node.token.type, ": ", node.token.subtype, "\"]\n");
+    } else if (node.token.type == .NUM) {
         fmt.fprint(f, "    ", nodeCounter, " [label=\"", node.token.type, ": ", node.token.val, "\"]\n");
     } else {
         fmt.fprint(f, "    ", nodeCounter, "[label=\"", node.token.type, ": ", node.token.var, "\"]\n");
