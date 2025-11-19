@@ -128,7 +128,6 @@ handleInput :: proc() {
         key[0] = key[1];
         key[1] = key[2];
         key[2] = key[3];
-        //53 54 65 66
 
         if (key[1] == '\x1b') do continue;
         if (key[0] == '\x1b' && key[1] == '[') {
@@ -176,7 +175,6 @@ handleInput :: proc() {
             case 10: // enter
                 if (len(inputBuf) == 0) do return;
                 fmt.print("\n");
-                // fmt.printf("\r\x1b[K%s\x1b[%dG\n", string(inputBuf[:len(inputBuf)]),  cursor);
                 process(&inputBuf);
                 cursor = 0;
                 clear(&inputBuf);
