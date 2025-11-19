@@ -207,7 +207,7 @@ parseExpr :: proc(lhs: ^node_s, minPrecedence: u32, popLogic: bool = true) -> (r
         if (op.token.subtype == .FACT) {
             op.left = lhs;
             lhs = op;
-            lookAhead = tokens[0];
+            if (len(tokens) > 0) do lookAhead = tokens[0];
             continue;
         }
 

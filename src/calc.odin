@@ -2,7 +2,7 @@ package main
 
 import "core:os"
 
-version := "1.1.1"
+version := "1.1.2"
 
 main :: proc() {
     if len(os.args) > 1 {
@@ -17,7 +17,7 @@ main :: proc() {
         if (!separate) do process(&inputBuf);
 
         return;
-    }
+}
 
     termiosInit();
     defer {
